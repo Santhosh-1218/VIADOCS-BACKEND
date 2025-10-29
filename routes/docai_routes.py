@@ -12,7 +12,7 @@ docai_bp = Blueprint("docai_bp", __name__)
 
 # Environment values
 MONGODB_URI = os.getenv("MONGODB_URI")
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "https://viadocs.in/api")
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "https://viadocs.in")
 
 # MongoDB connection
 client = MongoClient(MONGODB_URI)
