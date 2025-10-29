@@ -12,7 +12,7 @@ contact_bp = Blueprint("contact_bp", __name__)
 
 # Get environment variables
 MONGODB_URI = os.getenv("MONGODB_URI")
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "https://viadocs.in")
 
 # Connect to MongoDB Atlas
 client = MongoClient(MONGODB_URI)
