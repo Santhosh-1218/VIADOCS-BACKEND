@@ -1,4 +1,3 @@
-# backend/routes/admin_routes.py
 from flask import Blueprint, jsonify, request, current_app
 from datetime import datetime, timedelta
 from bson import ObjectId
@@ -20,12 +19,21 @@ def get_admin_dashboard():
         period = request.args.get("period", "daily").lower()  # daily, weekly, monthly
         user_type = request.args.get("user_type", "student").lower()  # ✅ New filter
 
-        # --- Build user query ---
-        query = {"role": user_type} if referral_filter == "OVERALL" else {
-            "referred_by": referral_filter,
-            "role": user_type
-        }
+        # --- Build user query (supporting overview) ---
+        if user_type == "overview":
+            # Include all roles (students + employees)
+            query = {} if referral_filter == "OVERALL" else {"referred_by": referral_filter}
+        else:
+            # Filter specific role
+            if referral_filter == "OVERALL":
+                query = {"role": user_type}
+            else:
+                query = {
+                    "referred_by": referral_filter,
+                    "role": user_type
+                }
 
+        # --- Fetch users ---
         users = list(users_col.find(query))
         total_users = len(users)
 
@@ -35,7 +43,11 @@ def get_admin_dashboard():
         referrals = [f"DOC{i}" for i in range(1, 11)]
         graph_data = []
         for ref in referrals:
-            ref_query = {"referred_by": ref, "role": user_type}
+            if user_type == "overview":
+                ref_query = {"referred_by": ref}
+            else:
+                ref_query = {"referred_by": ref, "role": user_type}
+
             count = users_col.count_documents(ref_query)
             graph_data.append({"referral": ref, "users": count})
 
@@ -51,12 +63,14 @@ def get_admin_dashboard():
                 day = now - timedelta(days=i)
                 start = datetime(day.year, day.month, day.day)
                 end = start + timedelta(days=1)
-                count = users_col.count_documents({
-                    "createdAt": {"$gte": start, "$lt": end},
-                    "role": user_type
-                })
+
+                trend_query = {"createdAt": {"$gte": start, "$lt": end}}
+                if user_type != "overview":
+                    trend_query["role"] = user_type
+
+                count = users_col.count_documents(trend_query)
                 trend_data.append({
-                    "label": start.strftime("%d %b"),  # e.g., 26 Oct
+                    "label": start.strftime("%d %b"),
                     "count": count
                 })
 
@@ -65,10 +79,12 @@ def get_admin_dashboard():
             for i in range(3, -1, -1):
                 week_start = now - timedelta(weeks=i + 1)
                 week_end = now - timedelta(weeks=i)
-                count = users_col.count_documents({
-                    "createdAt": {"$gte": week_start, "$lt": week_end},
-                    "role": user_type
-                })
+
+                trend_query = {"createdAt": {"$gte": week_start, "$lt": week_end}}
+                if user_type != "overview":
+                    trend_query["role"] = user_type
+
+                count = users_col.count_documents(trend_query)
                 label = f"Week {4 - i}"
                 trend_data.append({"label": label, "count": count})
 
@@ -82,12 +98,14 @@ def get_admin_dashboard():
                     next_month = datetime(year + 1, 1, 1)
                 else:
                     next_month = datetime(year, month + 1, 1)
-                count = users_col.count_documents({
-                    "createdAt": {"$gte": start, "$lt": next_month},
-                    "role": user_type
-                })
+
+                trend_query = {"createdAt": {"$gte": start, "$lt": next_month}}
+                if user_type != "overview":
+                    trend_query["role"] = user_type
+
+                count = users_col.count_documents(trend_query)
                 trend_data.append({
-                    "label": start.strftime("%b %Y"),  # e.g., Oct 2025
+                    "label": start.strftime("%b %Y"),
                     "count": count
                 })
 
@@ -117,7 +135,7 @@ def get_admin_dashboard():
                 "docs": doc_count,
                 "register_date": created_str,
                 "referral": user.get("referred_by", "None"),
-                "role": user.get("role", user_type.capitalize())  # ✅ Display user type
+                "role": user.get("role", user_type.capitalize())
             })
 
         # ==============================
@@ -141,7 +159,6 @@ def get_admin_dashboard():
 # ================================================================
 #  🗂️  Admin Feedback Management Routes
 # ================================================================
-
 @admin_bp.route("/feedbacks", methods=["GET"])
 def get_all_feedbacks():
     """Fetch all feedbacks from MongoDB"""
@@ -151,7 +168,12 @@ def get_all_feedbacks():
             return jsonify({"error": "Database connection failed"}), 500
 
         feedbacks_col = db["feedbacks"]
-        all_feedbacks = list(feedbacks_col.find({}, {"_id": 1, "name": 1, "email": 1, "rating": 1, "message": 1, "createdAt": 1}))
+        all_feedbacks = list(
+            feedbacks_col.find({}, {
+                "_id": 1, "name": 1, "email": 1,
+                "rating": 1, "message": 1, "createdAt": 1
+            })
+        )
 
         # Convert ObjectId to string for frontend
         for fb in all_feedbacks:
@@ -185,12 +207,9 @@ def delete_feedback(feedback_id):
         return jsonify({"error": str(e)}), 500
 
 
-
 # ================================================================
 #  📩 Admin Contact Messages Management
 # ================================================================
-from bson import ObjectId
-
 @admin_bp.route("/contacts", methods=["GET"])
 def get_all_contacts():
     """Fetch all contact messages"""
@@ -240,7 +259,6 @@ def delete_contact(contact_id):
         return jsonify({"error": str(e)}), 500
 
 
-
 # ================================================================
 # 👁️ SITE VISITORS ANALYTICS
 # ================================================================
@@ -288,7 +306,10 @@ def get_visitors_analytics():
         visitors = []
         today_logs = activity_col.find({"date": today}).sort("updated_at", -1)
         for log in today_logs:
-            user = users_col.find_one({"_id": log["user_id"]}, {"first_name": 1, "last_name": 1, "email": 1, "referred_by": 1})
+            user = users_col.find_one(
+                {"_id": log["user_id"]},
+                {"first_name": 1, "last_name": 1, "email": 1, "referred_by": 1}
+            )
             if not user:
                 continue
 
