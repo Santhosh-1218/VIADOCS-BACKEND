@@ -5,17 +5,12 @@ from flask import Blueprint, request, send_file, jsonify
 from pdf2image import convert_from_path
 from werkzeug.utils import secure_filename
 
-# Create blueprint for PDF → Image
+# ✅ Create blueprint for PDF → Image
 pdf_to_image_bp = Blueprint("pdf_to_image_bp", __name__)
 
-# Folder for uploads
+# ✅ Folder for uploads
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads", "pdf-to-image")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# Path to Poppler (⚠️ Update this path to your installed Poppler)
-# Example for Windows:
-POPPLER_PATH = r"C:\poppler-25.07.0\Library\bin"
-# On Linux or Mac, you can remove the `poppler_path` argument entirely.
 
 
 @pdf_to_image_bp.route("", methods=["POST"])
@@ -29,15 +24,15 @@ def pdf_to_image():
         if not pdf_file or pdf_file.filename == "":
             return jsonify({"error": "No selected file"}), 400
 
-        # Save uploaded PDF
+        # ✅ Save uploaded PDF
         filename = secure_filename(pdf_file.filename)
         pdf_path = os.path.join(UPLOAD_FOLDER, filename)
         pdf_file.save(pdf_path)
 
-        # Convert PDF pages to images
-        images = convert_from_path(pdf_path, dpi=300, poppler_path=POPPLER_PATH)
+        # ✅ Convert PDF pages to images (Linux compatible, no poppler_path)
+        images = convert_from_path(pdf_path, dpi=200)
 
-        # Create ZIP in memory
+        # ✅ Create ZIP in memory
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
             for i, img in enumerate(images, start=1):
@@ -48,10 +43,10 @@ def pdf_to_image():
 
         zip_buffer.seek(0)
 
-        # Remove uploaded PDF
+        # ✅ Cleanup uploaded PDF
         os.remove(pdf_path)
 
-        # Send ZIP back to frontend
+        # ✅ Send ZIP back to frontend
         return send_file(
             zip_buffer,
             as_attachment=True,
