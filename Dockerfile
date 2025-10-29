@@ -1,11 +1,10 @@
 # ===============================================
-# VIADOCS Backend - Full Production Setup (Fixed)
+# VIADOCS Backend - Stable & Fully Working Version
 # ===============================================
 
-# Use official Python lightweight image
 FROM python:3.11-slim
 
-# --- Install system dependencies required by all tools ---
+# --- Install system tools and dependencies ---
 RUN apt-get update && apt-get install -y \
     libreoffice \
     ghostscript \
@@ -18,21 +17,25 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Set environment variables for LibreOffice ---
+# --- Set environment variables for stability ---
 ENV OOO_FORCE_DESKTOP=gnome
 ENV HOME=/tmp
+ENV PYTHONUNBUFFERED=1
 
-# --- Set working directory ---
+# --- Working directory ---
 WORKDIR /app
 
-# --- Copy all project files ---
+# --- Copy project files ---
 COPY . .
 
-# --- Upgrade pip and install Python dependencies ---
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# --- Install Python packages ---
+RUN pip install --upgrade pip && pip install gunicorn && pip install -r requirements.txt
 
-# --- Expose Flask/Gunicorn port ---
+# --- Expose Flask port ---
 EXPOSE 5000
 
-# --- Start Gunicorn server (for Railway) ---
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:$PORT"]
+# --- Health check (optional) ---
+HEALTHCHECK CMD curl --fail http://localhost:${PORT:-5000}/api/health || exit 1
+
+# --- Start Gunicorn (fixed command) ---
+CMD bash -c "gunicorn app:app --workers=2 --threads=4 --timeout=120 --bind 0.0.0.0:${PORT}"
