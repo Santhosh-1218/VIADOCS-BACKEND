@@ -25,7 +25,7 @@ def allowed_file(filename):
 # CHECK DOCUMENT NAME
 # ----------------------------------------------------------
 @docs_bp.route("/check-name", methods=["POST", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def check_doc_name():
     """Check if a document name already exists for this user"""
@@ -50,7 +50,7 @@ def check_doc_name():
 # CREATE DOCUMENT
 # ----------------------------------------------------------
 @docs_bp.route("/my-docs", methods=["POST", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def create_doc():
     """Create a new document for the logged-in user"""
@@ -90,7 +90,7 @@ def create_doc():
 # GET ALL USER DOCUMENTS
 # ----------------------------------------------------------
 @docs_bp.route("/my-docs", methods=["GET", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def get_user_docs():
     """Return all documents for logged-in user"""
@@ -114,7 +114,7 @@ def get_user_docs():
 # GET SINGLE DOCUMENT
 # ----------------------------------------------------------
 @docs_bp.route("/my-docs/<doc_id>", methods=["GET", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def get_single_doc(doc_id):
     """Return a single document for a user"""
@@ -137,7 +137,7 @@ def get_single_doc(doc_id):
 # UPDATE DOCUMENT
 # ----------------------------------------------------------
 @docs_bp.route("/my-docs/<doc_id>", methods=["PUT", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def update_doc(doc_id):
     """Update document name/content/favorite"""
@@ -170,7 +170,7 @@ def update_doc(doc_id):
 # DELETE DOCUMENT
 # ----------------------------------------------------------
 @docs_bp.route("/my-docs/<doc_id>", methods=["DELETE", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def delete_doc(doc_id):
     """Delete a user’s document"""
@@ -192,7 +192,7 @@ def delete_doc(doc_id):
 # TOGGLE FAVORITE
 # ----------------------------------------------------------
 @docs_bp.route("/my-docs/<doc_id>/favorite", methods=["PATCH", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def toggle_favorite(doc_id):
     """Toggle favorite status for a document"""
@@ -224,7 +224,7 @@ def toggle_favorite(doc_id):
 # UPLOAD DOCUMENT IMAGE
 # ----------------------------------------------------------
 @docs_bp.route("/upload-image", methods=["POST", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def upload_image():
     """Upload document image and return public URL"""
@@ -257,7 +257,7 @@ def upload_image():
 # HOME DASHBOARD SUMMARY
 # ----------------------------------------------------------
 @docs_bp.route("/summary", methods=["GET", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 @jwt_required()
 def home_summary():
     """Return summary info for dashboard"""
@@ -303,7 +303,7 @@ def home_summary():
 # AUTH: REGISTER (added)
 # ----------------------------------------------------------
 @docs_bp.route("/auth/register", methods=["POST", "OPTIONS"])
-@cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
+@cross_origin(origins=["https://viadocs.in/api"], supports_credentials=True)
 def register():
     """Register a new user: expects JSON { email, password, name }"""
     try:
