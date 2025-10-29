@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from pymongo import MongoClient
@@ -13,24 +13,33 @@ from routes.contact_routes import contact_bp
 from routes.docai_routes import docai_bp
 from routes.feedback_routes import feedback_bp
 from routes.admin_routes import admin_bp
-# ✅ Import all document tool routes (from routes/tools/)
 from routes.tools_routes import tools_bp
 from routes.user_activity_routes import activity_bp
 
 # ✅ Load environment variables
 load_dotenv()
 
+# ✅ Initialize Flask App
 app = Flask(__name__)
 
-# ✅ Enable CORS for frontend communication
+# ✅ Enable CORS for frontend communication (Production Safe)
 CORS(
     app,
-    resources={r"/api/*": {"origins": os.getenv("FRONTEND_ORIGIN", "*")}},
-    supports_credentials=True
+    resources={
+        r"/api/*": {
+            "origins": [
+                os.getenv("FRONTEND_ORIGIN", "https://viadocs.in"),
+                "https://www.viadocs.in",
+                "http://localhost:5173",  # for local dev testing
+            ],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+        }
+    },
+    supports_credentials=True,
 )
 
-
-# ✅ JWT Config
+# ✅ JWT Configuration
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "viadocs_jwt_secret")
 jwt = JWTManager(app)
 
@@ -52,8 +61,6 @@ app.register_blueprint(contact_bp, url_prefix="/api/contact")
 app.register_blueprint(docai_bp, url_prefix="/api/docai")
 app.register_blueprint(feedback_bp, url_prefix="/api/feedback")
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
-
-# ✅ Register all tool routes (PDF → Word, PDF → Image, etc.)
 app.register_blueprint(tools_bp, url_prefix="/api/tools")
 app.register_blueprint(activity_bp, url_prefix="/api/activity")
 
@@ -67,7 +74,17 @@ def health():
     }), 200
 
 
+# ✅ Root Route (for direct browser access)
+@app.route("/")
+def home():
+    return jsonify({
+        "message": "🚀 Viadocs Backend Running Successfully",
+        "frontend": os.getenv("FRONTEND_ORIGIN", "Not Set")
+    }), 200
+
+
 # ✅ Entry Point
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    print(f"\n🚀 VIADOCS Backend running on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
