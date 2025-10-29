@@ -1,15 +1,19 @@
-# backend/routes/admin_routes.py
 from flask import Blueprint, jsonify, request, current_app
 from datetime import datetime, timedelta
 from bson import ObjectId
+import traceback
 
 admin_bp = Blueprint("admin_bp", __name__)
 
+# ================================================================
+# 🧠 ADMIN DASHBOARD — STABLE VERSION
+# ================================================================
 @admin_bp.route("/dashboard", methods=["GET"])
 def get_admin_dashboard():
     try:
         db = current_app.db
         if db is None:
+            print("❌ Database not connected.")
             return jsonify({"error": "Database connection failed"}), 500
 
         users_col = db["users"]
@@ -17,16 +21,23 @@ def get_admin_dashboard():
 
         # --- Query Parameters ---
         referral_filter = request.args.get("referral", "overall").upper()
-        period = request.args.get("period", "daily").lower()  # daily, weekly, monthly
-        user_type = request.args.get("user_type", "student").lower()  # ✅ New filter
+        period = request.args.get("period", "daily").lower()
+        user_type = request.args.get("user_type", "student").lower()
 
-        # --- Build user query ---
-        query = {"role": user_type} if referral_filter == "OVERALL" else {
-            "referred_by": referral_filter,
-            "role": user_type
-        }
+        # --- Build user query (supporting overview) ---
+        if user_type == "overview":
+            query = {} if referral_filter == "OVERALL" else {"referred_by": referral_filter}
+        else:
+            query = (
+                {"role": user_type}
+                if referral_filter == "OVERALL"
+                else {"referred_by": referral_filter, "role": user_type}
+            )
 
-        users = list(users_col.find(query))
+        print(f"[INFO] Admin dashboard query: {query}")
+
+        # --- Fetch Users ---
+        users = list(users_col.find(query, limit=50))  # limit fetch for performance
         total_users = len(users)
 
         # ==============================
@@ -34,95 +45,89 @@ def get_admin_dashboard():
         # ==============================
         referrals = [f"DOC{i}" for i in range(1, 11)]
         graph_data = []
+
         for ref in referrals:
-            ref_query = {"referred_by": ref, "role": user_type}
-            count = users_col.count_documents(ref_query)
+            if user_type == "overview":
+                ref_query = {"referred_by": ref}
+            else:
+                ref_query = {"referred_by": ref, "role": user_type}
+
+            try:
+                count = users_col.count_documents(ref_query)
+            except Exception:
+                count = 0
             graph_data.append({"referral": ref, "users": count})
 
         # ==============================
-        # 2️⃣ Registration Trend Graph (based on user_type)
+        # 2️⃣ Registration Trend Graph (daily/weekly/monthly)
         # ==============================
         now = datetime.utcnow()
         trend_data = []
 
+        def count_in_range(start, end):
+            trend_query = {"createdAt": {"$gte": start, "$lt": end}}
+            if user_type != "overview":
+                trend_query["role"] = user_type
+            try:
+                return users_col.count_documents(trend_query)
+            except Exception:
+                return 0
+
         if period == "daily":
-            # Last 7 days
             for i in range(6, -1, -1):
                 day = now - timedelta(days=i)
                 start = datetime(day.year, day.month, day.day)
                 end = start + timedelta(days=1)
-                count = users_col.count_documents({
-                    "createdAt": {"$gte": start, "$lt": end},
-                    "role": user_type
-                })
                 trend_data.append({
-                    "label": start.strftime("%d %b"),  # e.g., 26 Oct
-                    "count": count
+                    "label": start.strftime("%d %b"),
+                    "count": count_in_range(start, end)
                 })
-
         elif period == "weekly":
-            # Last 4 weeks
             for i in range(3, -1, -1):
                 week_start = now - timedelta(weeks=i + 1)
                 week_end = now - timedelta(weeks=i)
-                count = users_col.count_documents({
-                    "createdAt": {"$gte": week_start, "$lt": week_end},
-                    "role": user_type
+                trend_data.append({
+                    "label": f"Week {4 - i}",
+                    "count": count_in_range(week_start, week_end)
                 })
-                label = f"Week {4 - i}"
-                trend_data.append({"label": label, "count": count})
-
         elif period == "monthly":
-            # Last 6 months
             for i in range(5, -1, -1):
                 month = (now.month - i - 1) % 12 + 1
                 year = now.year - ((now.month - i - 1) // 12)
                 start = datetime(year, month, 1)
-                if month == 12:
-                    next_month = datetime(year + 1, 1, 1)
-                else:
-                    next_month = datetime(year, month + 1, 1)
-                count = users_col.count_documents({
-                    "createdAt": {"$gte": start, "$lt": next_month},
-                    "role": user_type
-                })
+                next_month = datetime(year + (1 if month == 12 else 0), (month % 12) + 1, 1)
                 trend_data.append({
-                    "label": start.strftime("%b %Y"),  # e.g., Oct 2025
-                    "count": count
+                    "label": start.strftime("%b %Y"),
+                    "count": count_in_range(start, next_month)
                 })
 
         # ==============================
-        # 3️⃣ User Details Section (filtered by user_type)
+        # 3️⃣ Recent Users Section
         # ==============================
         recent_users = []
-        for user in users[:10]:  # limit dashboard display
+        for user in users[:10]:
             user_id = str(user.get("_id", ""))
-            first = user.get("first_name", "")
-            last = user.get("last_name", "")
-            full_name = (first + " " + last).strip() or user.get("name", "Unknown")
-
-            # Count how many docs the user created
+            name = (f"{user.get('first_name', '')} {user.get('last_name', '')}").strip() or user.get("name", "Unknown")
             doc_count = docs_col.count_documents({"user_id": user_id})
-
             created_at = user.get("createdAt")
-            if isinstance(created_at, datetime):
-                created_str = created_at.strftime("%d-%m-%Y %H:%M:%S")
-            else:
-                created_str = "N/A"
+
+            created_str = (
+                created_at.strftime("%d-%m-%Y %H:%M:%S")
+                if isinstance(created_at, datetime)
+                else "N/A"
+            )
 
             recent_users.append({
-                "name": full_name,
+                "name": name,
                 "username": user.get("username", ""),
                 "mail": user.get("email", ""),
                 "docs": doc_count,
                 "register_date": created_str,
                 "referral": user.get("referred_by", "None"),
-                "role": user.get("role", user_type.capitalize())  # ✅ Display user type
+                "role": user.get("role", user_type.capitalize())
             })
 
-        # ==============================
         # ✅ Final Response
-        # ==============================
         return jsonify({
             "total_users": total_users,
             "recent_users": recent_users,
@@ -135,6 +140,7 @@ def get_admin_dashboard():
 
     except Exception as e:
         print("❌ Admin dashboard fetch error:", e)
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
