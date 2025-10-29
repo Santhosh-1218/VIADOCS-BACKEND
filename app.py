@@ -30,13 +30,21 @@ CORS(
             "origins": [
                 os.getenv("FRONTEND_ORIGIN", "https://viadocs.in"),
                 "https://www.viadocs.in",
-                "http://localhost:5173",  # for local dev testing
-            ],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
+                "http://localhost:5173",  # local dev testing
+            ]
         }
     },
     supports_credentials=True,
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Cache-Control",
+        "Origin",
+        "Accept",
+    ],
+    expose_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
 
 # ✅ JWT Configuration
