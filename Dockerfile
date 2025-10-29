@@ -1,5 +1,5 @@
 # ===============================================
-# VIADOCS Backend - Full Production Setup for Railway
+# VIADOCS Backend - Full Production Setup (Fixed)
 # ===============================================
 
 # Use official Python lightweight image
@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     g++ \
     libqpdf-dev \
-    fonts-dejavu \
-    ttf-mscorefonts-installer \
+    fonts-dejavu-core \
+    fonts-liberation \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -25,7 +25,7 @@ ENV HOME=/tmp
 # --- Set working directory ---
 WORKDIR /app
 
-# --- Copy all project files into container ---
+# --- Copy all project files ---
 COPY . .
 
 # --- Upgrade pip and install Python dependencies ---
