@@ -45,7 +45,7 @@ jwt = JWTManager(app)
 
 # ✅ MongoDB Connection
 try:
-    client = MongoClient(os.getenv("MONGODB_URI"))
+    client = MongoClient(os.getenv("MONGODB_URI"), serverSelectionTimeoutMS=5000)
     db = client["viadocsDB"]
     app.db = db
     print("✅ Connected to MongoDB Atlas successfully!")
