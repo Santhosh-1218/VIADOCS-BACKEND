@@ -3,7 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from flask_cors import cross_origin
 from bson import ObjectId
 from werkzeug.utils import secure_filename
-from werkzeug.security import generate_password_hash  # added import
+from werkzeug.security import generate_password_hash
+import base64
 import os
 import uuid
 from datetime import datetime
@@ -15,9 +16,7 @@ docs_bp = Blueprint("docs_bp", __name__)
 # ----------------------------------------------------------
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
-
 def allowed_file(filename):
-    """Check allowed image extensions"""
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
@@ -28,7 +27,6 @@ def allowed_file(filename):
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def check_doc_name():
-    """Check if a document name already exists for this user"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -40,7 +38,6 @@ def check_doc_name():
 
         exists = db.documents.find_one({"user_id": user_id, "name": name}) is not None
         return jsonify({"exists": exists}), 200
-
     except Exception as e:
         print("❌ check_doc_name error:", e)
         return jsonify({"message": "Server error"}), 500
@@ -53,7 +50,6 @@ def check_doc_name():
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def create_doc():
-    """Create a new document for the logged-in user"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -66,7 +62,6 @@ def create_doc():
         if not name:
             return jsonify({"message": "Document name required"}), 400
 
-        # Prevent duplicate names for this user
         if db.documents.find_one({"user_id": user_id, "name": name}):
             return jsonify({"message": "Document name already exists"}), 400
 
@@ -93,7 +88,6 @@ def create_doc():
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def get_user_docs():
-    """Return all documents for logged-in user"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -117,7 +111,6 @@ def get_user_docs():
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def get_single_doc(doc_id):
-    """Return a single document for a user"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -140,7 +133,6 @@ def get_single_doc(doc_id):
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def update_doc(doc_id):
-    """Update document name/content/favorite"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -173,7 +165,6 @@ def update_doc(doc_id):
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def delete_doc(doc_id):
-    """Delete a user’s document"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -195,7 +186,6 @@ def delete_doc(doc_id):
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def toggle_favorite(doc_id):
-    """Toggle favorite status for a document"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -205,14 +195,10 @@ def toggle_favorite(doc_id):
             return jsonify({"message": "Document not found"}), 404
 
         new_status = not doc.get("favorite", False)
-        # Ensure we only update the document if it belongs to the logged-in user
-        result = db.documents.update_one(
+        db.documents.update_one(
             {"_id": ObjectId(doc_id), "user_id": user_id},
-            {"$set": {"favorite": new_status, "updated_at": datetime.utcnow()}}
+            {"$set": {"favorite": new_status, "updated_at": datetime.utcnow()}},
         )
-
-        if result.matched_count == 0:
-            return jsonify({"message": "Document not found or not owned by user"}), 404
 
         return jsonify({"favorite": new_status}), 200
     except Exception as e:
@@ -221,16 +207,22 @@ def toggle_favorite(doc_id):
 
 
 # ----------------------------------------------------------
-# UPLOAD DOCUMENT IMAGE
+# ✅ UPLOAD DOCUMENT IMAGE — Save to MongoDB Atlas
 # ----------------------------------------------------------
 @docs_bp.route("/upload-image", methods=["POST", "OPTIONS"])
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def upload_image():
-    """Upload document image and return public URL"""
+    """
+    Upload document image, encode in Base64, store in MongoDB Atlas,
+    and return a data URI that can be rendered directly.
+    """
     try:
+        db = current_app.db
+        user_id = get_jwt_identity()
+
         if "image" not in request.files:
-            return jsonify({"error": "No file provided"}), 400
+            return jsonify({"error": "No image file provided"}), 400
 
         file = request.files["image"]
         if file.filename == "":
@@ -238,29 +230,39 @@ def upload_image():
         if not allowed_file(file.filename):
             return jsonify({"error": "Invalid file type"}), 400
 
-        # ✅ Save in /uploads/doc_images/
-        upload_folder = os.path.join(current_app.root_path, "uploads", "doc_images")
-        os.makedirs(upload_folder, exist_ok=True)
+        filename = secure_filename(file.filename)
+        unique_name = f"{uuid.uuid4().hex}_{filename}"
+        content_type = file.mimetype
 
-        filename = f"doc_{uuid.uuid4().hex}_{secure_filename(file.filename)}"
-        file_path = os.path.join(upload_folder, filename)
-        file.save(file_path)
+        # Read file and encode to base64
+        file_data = file.read()
+        encoded = base64.b64encode(file_data).decode("utf-8")
 
-        file_url = f"/uploads/doc_images/{filename}"
+        # Save in MongoDB
+        db.images.insert_one({
+            "user_id": user_id,
+            "filename": unique_name,
+            "content_type": content_type,
+            "data": encoded,
+            "uploaded_at": datetime.utcnow(),
+        })
+
+        # Create a data URI
+        file_url = f"data:{content_type};base64,{encoded}"
         return jsonify({"url": file_url}), 200
+
     except Exception as e:
         print("❌ upload_image error:", e)
         return jsonify({"error": "Failed to upload image"}), 500
 
 
 # ----------------------------------------------------------
-# HOME DASHBOARD SUMMARY
+# HOME SUMMARY
 # ----------------------------------------------------------
 @docs_bp.route("/summary", methods=["GET", "OPTIONS"])
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def home_summary():
-    """Return summary info for dashboard"""
     try:
         db = current_app.db
         user_id = get_jwt_identity()
@@ -273,12 +275,10 @@ def home_summary():
             .sort("updated_at", -1)
             .limit(5)
         )
-
         for doc in recent_docs:
             doc["_id"] = str(doc["_id"])
             doc["updated_at"] = doc.get("updated_at", datetime.utcnow()).isoformat()
 
-        # small favorites preview for home page (limit to 5)
         favorite_docs = list(
             db.documents.find({"user_id": user_id, "favorite": True})
             .sort("updated_at", -1)
@@ -300,12 +300,11 @@ def home_summary():
 
 
 # ----------------------------------------------------------
-# AUTH: REGISTER (added)
+# AUTH REGISTER
 # ----------------------------------------------------------
 @docs_bp.route("/auth/register", methods=["POST", "OPTIONS"])
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 def register():
-    """Register a new user: expects JSON { email, password, name }"""
     try:
         db = current_app.db
         data = request.get_json() or {}
@@ -314,32 +313,21 @@ def register():
         password = data.get("password") or ""
         name = (data.get("name") or "").strip()
 
-        if not email:
-            return jsonify({"message": "Email is required"}), 400
-        if not password:
-            return jsonify({"message": "Password is required"}), 400
-        if not name:
-            return jsonify({"message": "Name is required"}), 400
-
-        # Basic email format check
-        if "@" not in email or "." not in email:
-            return jsonify({"message": "Invalid email format"}), 400
-
-        # Check existing user
+        if not email or not password or not name:
+            return jsonify({"message": "All fields are required"}), 400
+        if "@" not in email:
+            return jsonify({"message": "Invalid email"}), 400
         if db.users.find_one({"email": email}):
-            return jsonify({"message": "User with this email already exists"}), 400
+            return jsonify({"message": "User already exists"}), 400
 
         hashed_pw = generate_password_hash(password)
-
-        user_doc = {
+        result = db.users.insert_one({
             "email": email,
             "password": hashed_pw,
             "name": name,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
-        }
-
-        result = db.users.insert_one(user_doc)
+        })
 
         return jsonify({"_id": str(result.inserted_id), "message": "User created"}), 201
     except Exception as e:

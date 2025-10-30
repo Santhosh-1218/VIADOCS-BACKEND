@@ -3,9 +3,17 @@ from flask_cors import cross_origin
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from bson import ObjectId
 from datetime import datetime
-import os
+from werkzeug.utils import secure_filename
+import base64
+import uuid
 
 user_bp = Blueprint("user_bp", __name__)
+
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 # ---------------------- GET PROFILE ----------------------
 @user_bp.route("/profile", methods=["GET", "OPTIONS"])
@@ -20,6 +28,15 @@ def get_profile():
     if not user:
         return jsonify({"message": "User not found"}), 404
 
+    # Convert stored Base64 image to usable data URI
+    profile_image_url = None
+    if user.get("profile_image"):
+        if user["profile_image"].startswith("data:image/"):
+            profile_image_url = user["profile_image"]
+        else:
+            # In case legacy URLs exist
+            profile_image_url = user["profile_image"]
+
     return jsonify({
         "id": str(user["_id"]),
         "username": user.get("username", ""),
@@ -31,7 +48,7 @@ def get_profile():
         "gender": user.get("gender", ""),
         "role": user.get("role", ""),
         "premium": user.get("premium", False),
-        "profileImage": user.get("profile_image", None)
+        "profileImage": profile_image_url,
     }), 200
 
 
@@ -43,7 +60,7 @@ def update_profile():
     """Update profile fields (name, DOB, etc.)"""
     db = current_app.db
     user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
     update_fields = {}
 
     if "firstName" in data:
@@ -56,9 +73,10 @@ def update_profile():
     if not update_fields:
         return jsonify({"message": "No valid fields to update"}), 400
 
+    update_fields["updated_at"] = datetime.utcnow()
     db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_fields})
-    user = db.users.find_one({"_id": ObjectId(user_id)})
 
+    user = db.users.find_one({"_id": ObjectId(user_id)})
     return jsonify({
         "id": str(user["_id"]),
         "firstName": user.get("first_name", ""),
@@ -70,41 +88,55 @@ def update_profile():
     }), 200
 
 
-# ---------------------- UPLOAD PROFILE IMAGE ----------------------
+# ---------------------- UPLOAD PROFILE IMAGE (Save in MongoDB) ----------------------
 @user_bp.route("/profile/upload", methods=["PUT", "OPTIONS"])
 @cross_origin(origins=["https://viadocs.in"], supports_credentials=True)
 @jwt_required()
 def upload_profile_image():
-    """Upload and save profile picture to /uploads/profile_images"""
-    db = current_app.db
-    user_id = get_jwt_identity()
+    """
+    Upload profile image → Encode Base64 → Save in MongoDB users.profile_image
+    Returns a data URI so the frontend can display instantly.
+    """
+    try:
+        db = current_app.db
+        user_id = get_jwt_identity()
 
-    if "profileImage" not in request.files:
-        return jsonify({"message": "No file provided"}), 400
+        if "profileImage" not in request.files:
+            return jsonify({"message": "No image provided"}), 400
 
-    file = request.files["profileImage"]
-    if file.filename == "":
-        return jsonify({"message": "Empty filename"}), 400
+        file = request.files["profileImage"]
+        if file.filename == "":
+            return jsonify({"message": "Empty filename"}), 400
+        if not allowed_file(file.filename):
+            return jsonify({"message": "Invalid file type"}), 400
 
-    # ✅ Save to uploads/profile_images folder
-    uploads_dir = os.path.join(current_app.root_path, "uploads", "profile_images")
-    os.makedirs(uploads_dir, exist_ok=True)
+        filename = secure_filename(file.filename)
+        unique_name = f"profile_{uuid.uuid4().hex}_{filename}"
+        content_type = file.mimetype
 
-    filename = f"profile_{user_id}_{int(datetime.utcnow().timestamp())}.jpg"
-    file_path = os.path.join(uploads_dir, filename)
-    file.save(file_path)
+        # Read image as Base64
+        image_data = base64.b64encode(file.read()).decode("utf-8")
+        image_uri = f"data:{content_type};base64,{image_data}"
 
-    image_url = f"/uploads/profile_images/{filename}"
+        # Save directly in MongoDB under user's profile
+        db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$set": {
+                    "profile_image": image_uri,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
 
-    db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"profile_image": image_url}}
-    )
+        return jsonify({
+            "message": "Profile image uploaded successfully",
+            "profileImage": image_uri
+        }), 200
 
-    return jsonify({
-        "message": "Profile image updated successfully",
-        "profileImage": image_url
-    }), 200
+    except Exception as e:
+        print("❌ upload_profile_image error:", e)
+        return jsonify({"message": "Failed to upload image"}), 500
 
 
 # ---------------------- SET USER ROLE ----------------------
@@ -115,7 +147,7 @@ def set_role():
     """Save user type (Student / Employee)"""
     db = current_app.db
     user_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
     role = data.get("role")
 
     if role not in ["student", "employee"]:
