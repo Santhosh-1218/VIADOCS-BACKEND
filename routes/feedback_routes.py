@@ -5,6 +5,7 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask_cors import cross_origin
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from bson import ObjectId
 
 # Load environment variables
 load_dotenv()
@@ -21,33 +22,43 @@ db = client["viadocsDB"]
 feedback_collection = db["feedbacks"]
 users_collection = db["users"]
 
-# ✅ Correct route (NO /api/feedback inside)
+# ✅ Feedback Route (Stores Name, Email, Message, Rating)
 @feedback_bp.route("", methods=["POST", "OPTIONS"])
-@cross_origin(origins=[FRONTEND_ORIGIN])
+@cross_origin(origins=[FRONTEND_ORIGIN], supports_credentials=True)
 @jwt_required(optional=True)
 def feedback():
-    # Handle preflight request (CORS)
+    """Collect feedback and store user details (if logged in)."""
+    # Handle preflight (CORS)
     if request.method == "OPTIONS":
         return jsonify({"status": "ok"}), 200
 
-    data = request.get_json(silent=True)
-    message = data.get("message") if data else None
-    rating = data.get("rating") if data else None
+    # Extract incoming data
+    data = request.get_json(silent=True) or {}
+    message = data.get("message")
+    rating = data.get("rating")
 
     if not message:
         return jsonify({"error": "Feedback message is required"}), 400
 
-    # 🔐 Try to identify user via JWT
+    # 🔐 Identify user (optional JWT)
     user_id = get_jwt_identity()
     name = "Guest User"
     email = "N/A"
 
     if user_id:
-        user_info = users_collection.find_one({"_id": user_id})
-        if user_info:
-            name = f"{user_info.get('firstName', '')} {user_info.get('lastName', '')}".strip() or user_info.get("username", "User")
-            email = user_info.get("email", "N/A")
+        try:
+            # Convert string ID → ObjectId safely
+            user_obj = users_collection.find_one({"_id": ObjectId(user_id)})
+            if user_obj:
+                first_name = user_obj.get("first_name") or user_obj.get("firstName", "")
+                last_name = user_obj.get("last_name") or user_obj.get("lastName", "")
+                username = user_obj.get("username", "User")
+                name = f"{first_name} {last_name}".strip() or username
+                email = user_obj.get("email", "N/A")
+        except Exception as e:
+            print("⚠️ feedback user lookup error:", e)
 
+    # Create feedback document
     feedback_entry = {
         "name": name,
         "email": email,
@@ -56,6 +67,8 @@ def feedback():
         "createdAt": datetime.utcnow(),
     }
 
+    # Insert into MongoDB Atlas
     feedback_collection.insert_one(feedback_entry)
+    print(f"✅ Feedback saved: {name} ({email})")
 
     return jsonify({"message": "Feedback submitted successfully!"}), 200
