@@ -197,10 +197,10 @@ def verify_user():
 
 
 # ==========================================================
-# 🔐 FORGOT PASSWORD — SEND OTP / VERIFY / RESET
+# 🔐 Forgot Password — OTP Flow
 # ==========================================================
 
-# ✅ Send OTP Email
+# 📤 Send OTP Email
 def send_otp_email(recipient, otp):
     try:
         msg = MIMEText(f"""
@@ -230,8 +230,7 @@ If you didn’t request this, please ignore.
         print("❌ Email send failed:", e)
         return False
 
-
-# ✅ Send OTP
+# 📩 Send OTP
 @auth_bp.route("/send-otp", methods=["POST"])
 def send_otp():
     try:
@@ -254,16 +253,13 @@ def send_otp():
         }
 
         print(f"🧾 OTP generated for {email}: {otp}")
-
         if not send_otp_email(email, otp):
             return jsonify({"message": "Failed to send OTP"}), 500
 
         return jsonify({"message": "OTP sent successfully!"}), 200
-
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         return jsonify({"message": "Server error"}), 500
-
 
 # ✅ Verify OTP
 @auth_bp.route("/verify-otp", methods=["POST"])
@@ -285,13 +281,11 @@ def verify_otp():
         otp_store[email]["verified"] = True
         print(f"✅ OTP verified for {email}")
         return jsonify({"message": "OTP verified successfully!"}), 200
-
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         return jsonify({"message": "Server error"}), 500
 
-
-# ✅ Reset Password (hash + update)
+# ✅ Reset Password (hashed)
 @auth_bp.route("/reset-password", methods=["POST"])
 def reset_password():
     try:
@@ -308,15 +302,11 @@ def reset_password():
             return jsonify({"message": "OTP verification required"}), 400
 
         hashed_pw = hash_password(new_password)
-        db.users.update_one(
-            {"email": email},
-            {"$set": {"password": hashed_pw, "original_password": new_password}}
-        )
+        db.users.update_one({"email": email}, {"$set": {"password": hashed_pw}})
 
         otp_store.pop(email, None)
         print(f"✅ Password reset for {email}")
         return jsonify({"message": "Password reset successful!"}), 200
-
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
         return jsonify({"message": "Server error"}), 500
