@@ -214,41 +214,49 @@ def verify_user():
         return jsonify({"loggedIn": False, "error": str(e)}), 500
 
 
-# ==========================================================
-# 🔐 FORGOT PASSWORD (OTP + RESET)
-# ==========================================================
-otp_store = {}
+
+
+
+# ✅ Check Email
+@auth_bp.route("/check-email", methods=["GET"])
+def check_email():
+    try:
+        email = request.args.get("email", "").strip().lower()
+        db = get_db()
+        exists = db.users.find_one({"email": email})
+        return jsonify({"available": not bool(exists)}), 200
+    except Exception as e:
+        print("❌ check-email error:", e)
+        traceback.print_exc()
+        return jsonify({"error": "Server error"}), 500
 
 # ✅ Send OTP Email
-def send_otp_email(recipient, otp):
+def send_otp_email(to_email, otp):
     try:
         msg = MIMEText(f"""
 Hello from Viadocs 👋,
 
-Your password reset OTP is: {otp}
+Your 4-digit password reset OTP is: {otp}
 
-This OTP will expire in 5 minutes.
+It will expire in 5 minutes.
 
-If you didn’t request this, please ignore this email.
+If you didn’t request this, please ignore.
 
-— Team Viadocs
+— Viadocs Team
 """)
         msg["Subject"] = "🔐 Viadocs Password Reset OTP"
         msg["From"] = EMAIL_USER
-        msg["To"] = recipient
+        msg["To"] = to_email
 
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASS)
             server.send_message(msg)
-
-        print(f"✅ OTP email sent to {recipient}")
         return True
     except Exception as e:
-        print("❌ Email send failed:", e)
+        print("❌ OTP email failed:", e)
         traceback.print_exc()
         return False
-
 
 # ✅ Send OTP
 @auth_bp.route("/send-otp", methods=["POST"])
@@ -256,11 +264,7 @@ def send_otp():
     try:
         db = get_db()
         data = request.get_json()
-        email = data.get("email", "").strip().lower()
-
-        if not email:
-            return jsonify({"message": "Email is required"}), 400
-
+        email = data.get("email", "").lower()
         user = db.users.find_one({"email": email})
         if not user:
             return jsonify({"message": "Email not registered"}), 404
@@ -269,21 +273,16 @@ def send_otp():
         otp_store[email] = {
             "otp": otp,
             "expires": datetime.utcnow() + timedelta(minutes=5),
-            "verified": False
+            "verified": False,
         }
-
         print(f"🧾 OTP generated for {email}: {otp}")
-
         if not send_otp_email(email, otp):
-            return jsonify({"message": "Failed to send OTP. Try again later."}), 500
+            return jsonify({"message": "Failed to send OTP"}), 500
 
-        return jsonify({"message": "OTP sent successfully!"}), 200
-
+        return jsonify({"message": "OTP sent successfully"}), 200
     except Exception as e:
-        print("❌ send-otp error:", e)
         traceback.print_exc()
         return jsonify({"message": "Server error"}), 500
-
 
 # ✅ Verify OTP
 @auth_bp.route("/verify-otp", methods=["POST"])
@@ -295,22 +294,17 @@ def verify_otp():
 
         record = otp_store.get(email)
         if not record:
-            return jsonify({"message": "No OTP found"}), 400
+            return jsonify({"message": "OTP not found"}), 400
         if datetime.utcnow() > record["expires"]:
-            otp_store.pop(email, None)
             return jsonify({"message": "OTP expired"}), 400
         if otp != record["otp"]:
             return jsonify({"message": "Invalid OTP"}), 400
 
         otp_store[email]["verified"] = True
-        print(f"✅ OTP verified for {email}")
-        return jsonify({"message": "OTP verified successfully!"}), 200
-
+        return jsonify({"message": "OTP verified successfully"}), 200
     except Exception as e:
-        print("❌ verify-otp error:", e)
         traceback.print_exc()
         return jsonify({"message": "Server error"}), 500
-
 
 # ✅ Reset Password
 @auth_bp.route("/reset-password", methods=["POST"])
@@ -320,25 +314,15 @@ def reset_password():
         data = request.get_json()
         email = data.get("email", "").lower()
         new_password = data.get("newPassword", "").strip()
-
-        if not email or not new_password:
-            return jsonify({"message": "Missing fields"}), 400
-
         record = otp_store.get(email)
+
         if not record or not record.get("verified"):
             return jsonify({"message": "OTP verification required"}), 400
 
         hashed_pw = hash_password(new_password)
-        db.users.update_one(
-            {"email": email},
-            {"$set": {"password": hashed_pw, "original_password": new_password}}
-        )
-
+        db.users.update_one({"email": email}, {"$set": {"password": hashed_pw}})
         otp_store.pop(email, None)
-        print(f"✅ Password reset for {email}")
-        return jsonify({"message": "Password reset successful!"}), 200
-
+        return jsonify({"message": "Password reset successful"}), 200
     except Exception as e:
-        print("❌ reset-password error:", e)
         traceback.print_exc()
         return jsonify({"message": "Server error"}), 500
