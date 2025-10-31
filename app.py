@@ -16,8 +16,7 @@ from routes.admin_routes import admin_bp
 from routes.tools_routes import tools_bp
 from routes.user_activity_routes import activity_bp
 
-# ✅ Fixed: unique blueprint name
-auth_bp = Blueprint("auth_bp", __name__)
+# ✅ Load environment variables
 load_dotenv()
 
 # ✅ Initialize Flask App
@@ -54,11 +53,7 @@ jwt = JWTManager(app)
 
 # ✅ MongoDB Connection
 try:
-    mongo_uri = os.getenv("MONGODB_URI")
-    if not mongo_uri:
-        raise Exception("Missing MONGODB_URI in environment variables.")
-
-    client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+    client = MongoClient(os.getenv("MONGODB_URI"), serverSelectionTimeoutMS=5000)
     db = client["viadocsDB"]
     app.db = db
     print("✅ Connected to MongoDB Atlas successfully!")
@@ -67,20 +62,15 @@ except Exception as e:
     app.db = None
 
 # ✅ Register Blueprints (organized modular structure)
-try:
-    app.register_blueprint(auth_bp, url_prefix="/api/auth")
-    app.register_blueprint(docs_bp, url_prefix="/api/docs")
-    app.register_blueprint(user_bp, url_prefix="/api")
-    app.register_blueprint(contact_bp, url_prefix="/api/contact")
-    app.register_blueprint(docai_bp, url_prefix="/api/docai")
-    app.register_blueprint(feedback_bp, url_prefix="/api/feedback")
-    app.register_blueprint(admin_bp, url_prefix="/api/admin")
-    app.register_blueprint(tools_bp, url_prefix="/api/tools")
-    app.register_blueprint(activity_bp, url_prefix="/api/activity")
-    print("✅ All blueprints registered successfully!")
-except ValueError as e:
-    # Prevents duplicate blueprint crash on Railway
-    print("⚠️ Blueprint registration issue detected:", e)
+app.register_blueprint(auth_bp, url_prefix="/api/auth")
+app.register_blueprint(docs_bp, url_prefix="/api/docs")
+app.register_blueprint(user_bp, url_prefix="/api")
+app.register_blueprint(contact_bp, url_prefix="/api/contact")
+app.register_blueprint(docai_bp, url_prefix="/api/docai")
+app.register_blueprint(feedback_bp, url_prefix="/api/feedback")
+app.register_blueprint(admin_bp, url_prefix="/api/admin")
+app.register_blueprint(tools_bp, url_prefix="/api/tools")
+app.register_blueprint(activity_bp, url_prefix="/api/activity")
 
 # ✅ Health Check Route
 @app.route("/api/health")
@@ -91,6 +81,7 @@ def health():
         "db_connected": bool(app.db)
     }), 200
 
+
 # ✅ Root Route (for direct browser access)
 @app.route("/")
 def home():
@@ -98,6 +89,7 @@ def home():
         "message": "🚀 Viadocs Backend Running Successfully",
         "frontend": os.getenv("FRONTEND_ORIGIN", "Not Set")
     }), 200
+
 
 # ✅ Entry Point
 if __name__ == "__main__":
