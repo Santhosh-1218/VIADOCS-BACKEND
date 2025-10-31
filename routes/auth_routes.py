@@ -8,7 +8,11 @@ from bson import ObjectId
 from utils.security import hash_password, check_password
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
+import traceback
 
+# ==========================================================
+# ✅ Initialize
+# ==========================================================
 auth_bp = Blueprint("auth", __name__)
 load_dotenv()
 
@@ -17,6 +21,7 @@ load_dotenv()
 # ----------------------------------------------------------
 VALID_REFERRALS = {"DOC1", "DOC2", "DOC3", "DOC4", "DOC5",
                    "DOC6", "DOC7", "DOC8", "DOC9", "DOC10"}
+
 
 # ----------------------------------------------------------
 # CHECK USERNAME
@@ -65,11 +70,11 @@ def check_referral():
 
 
 # ----------------------------------------------------------
-# REGISTER NEW USER (Stores both hashed + original password)
+# REGISTER NEW USER
 # ----------------------------------------------------------
 @auth_bp.route("/register", methods=["POST"])
 def register():
-    """Register a new user (with original password visible in DB)"""
+    """Register a new user (store hashed + original password)"""
     try:
         db = current_app.db
         data = request.get_json()
@@ -79,18 +84,15 @@ def register():
         if not all(k in data and data[k] for k in required):
             return jsonify({"error": "Missing fields"}), 400
 
-        # Check duplicates
         if db.users.find_one({"email": data["email"].lower()}):
             return jsonify({"error": "Email already registered"}), 400
         if db.users.find_one({"username": data["username"].lower()}):
             return jsonify({"error": "Username already taken"}), 400
 
-        # Validate referral
         referred_by = data.get("referred_by", "").strip().upper()
         if referred_by and referred_by not in VALID_REFERRALS:
             return jsonify({"error": "Invalid referral code"}), 400
 
-        # ✅ Save both hashed password and plain password (for internal testing)
         hashed_pw = hash_password(data["password"])
 
         db.users.insert_one({
@@ -98,8 +100,8 @@ def register():
             "first_name": data["first_name"],
             "last_name": data["last_name"],
             "email": data["email"].lower(),
-            "password": hashed_pw,                   # ✅ Encrypted (used for login)
-            "original_password": data["password"],   # ⚠️ Plain text (for testing only)
+            "password": hashed_pw,
+            "original_password": data["password"],
             "dob": data["dob"],
             "gender": data["gender"],
             "referred_by": referred_by if referred_by else None,
@@ -115,6 +117,7 @@ def register():
 
     except Exception as e:
         print("❌ register error:", e)
+        traceback.print_exc()
         return jsonify({"error": "Server error"}), 500
 
 
@@ -159,6 +162,7 @@ def login():
 
     except Exception as e:
         print("❌ login error:", e)
+        traceback.print_exc()
         return jsonify({"error": "Server error"}), 500
 
 
@@ -186,41 +190,25 @@ def verify_user():
 
     except Exception as e:
         print("❌ verify error:", e)
+        traceback.print_exc()
         return jsonify({"loggedIn": False, "error": str(e)}), 500
-# ==========================================================
-# 🔐 FORGOT PASSWORD SYSTEM (OTP + RESET) - FIXED VERSION
-# ==========================================================
-import random
-import smtplib
-from email.mime.text import MIMEText
-from datetime import datetime, timedelta
-from flask import Blueprint, request, jsonify, current_app
-from utils.security import hash_password
-import os
-import traceback
 
-auth_bp = Blueprint("auth", __name__)
 
-# OTP storage in-memory (use Redis in production)
+# ==========================================================
+# 🔐 FORGOT PASSWORD SYSTEM (OTP + RESET)
+# ==========================================================
+
 otp_store = {}
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-
 def get_db():
-    """Helper to access database from Flask app"""
     return current_app.db
 
 
-# ----------------------------------------------------------
-# ✅ Send OTP Email Function (Improved Debugging)
-# ----------------------------------------------------------
+# ✅ Send OTP Email
 def send_otp_email(recipient, otp):
     try:
-        if not EMAIL_USER or not EMAIL_PASS:
-            print("❌ EMAIL_USER or EMAIL_PASS not set in environment.")
-            return False
-
         msg = MIMEText(f"""
 Hello from Viadocs 👋,
 
@@ -236,32 +224,20 @@ If you didn’t request this, please ignore this email.
         msg["From"] = EMAIL_USER
         msg["To"] = recipient
 
-        print(f"📨 Attempting to send OTP to {recipient} via Gmail SMTP...")
-
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASS)
             server.send_message(msg)
 
-        print(f"✅ OTP email successfully sent to {recipient}")
+        print(f"✅ OTP email sent to {recipient}")
         return True
-
-    except smtplib.SMTPAuthenticationError as e:
-        print("❌ Gmail authentication failed! Check EMAIL_USER and EMAIL_PASS.")
-        print("Details:", e)
-        return False
-    except smtplib.SMTPConnectError as e:
-        print("❌ SMTP connection error (maybe Railway blocked port 587):", e)
-        return False
     except Exception as e:
-        print("❌ General email send error:", e)
+        print("❌ Email send failed:", e)
         traceback.print_exc()
         return False
 
 
-# ----------------------------------------------------------
-# ✅ Send OTP Endpoint
-# ----------------------------------------------------------
+# ✅ Send OTP
 @auth_bp.route("/send-otp", methods=["POST"])
 def send_otp():
     try:
@@ -283,22 +259,20 @@ def send_otp():
             "verified": False
         }
 
-        print(f"🧾 Generated OTP {otp} for {email}")
+        print(f"🧾 OTP generated for {email}: {otp}")
 
         if not send_otp_email(email, otp):
-            return jsonify({"message": "Failed to send OTP. Please try again later."}), 500
+            return jsonify({"message": "Failed to send OTP. Try again later."}), 500
 
         return jsonify({"message": "OTP sent successfully!"}), 200
 
     except Exception as e:
         print("❌ send-otp error:", e)
         traceback.print_exc()
-        return jsonify({"message": f"Server error: {str(e)}"}), 500
+        return jsonify({"message": "Server error"}), 500
 
 
-# ----------------------------------------------------------
-# ✅ Verify OTP Endpoint
-# ----------------------------------------------------------
+# ✅ Verify OTP
 @auth_bp.route("/verify-otp", methods=["POST"])
 def verify_otp():
     try:
@@ -306,21 +280,15 @@ def verify_otp():
         email = data.get("email", "").lower()
         otp = data.get("otp", "").strip()
 
-        if not email or not otp:
-            return jsonify({"message": "Missing email or OTP"}), 400
-
         record = otp_store.get(email)
         if not record:
-            return jsonify({"message": "No OTP found for this email"}), 400
-
+            return jsonify({"message": "No OTP found"}), 400
         if datetime.utcnow() > record["expires"]:
             otp_store.pop(email, None)
-            return jsonify({"message": "OTP expired, please request again"}), 400
-
+            return jsonify({"message": "OTP expired"}), 400
         if otp != record["otp"]:
             return jsonify({"message": "Invalid OTP"}), 400
 
-        # Mark OTP verified
         otp_store[email]["verified"] = True
         print(f"✅ OTP verified for {email}")
         return jsonify({"message": "OTP verified successfully!"}), 200
@@ -331,9 +299,7 @@ def verify_otp():
         return jsonify({"message": "Server error"}), 500
 
 
-# ----------------------------------------------------------
-# ✅ Reset Password Endpoint
-# ----------------------------------------------------------
+# ✅ Reset Password (store plain password)
 @auth_bp.route("/reset-password", methods=["POST"])
 def reset_password():
     try:
@@ -349,14 +315,14 @@ def reset_password():
         if not record or not record.get("verified"):
             return jsonify({"message": "OTP verification required"}), 400
 
-        hashed_pw = hash_password(new_password)
+        # Save new password in plain text only
         db.users.update_one(
             {"email": email},
-            {"$set": {"password": hashed_pw, "original_password": new_password}}
+            {"$set": {"password": new_password, "original_password": new_password}}
         )
 
         otp_store.pop(email, None)
-        print(f"✅ Password successfully reset for {email}")
+        print(f"✅ Password reset for {email} (saved as plain text)")
         return jsonify({"message": "Password reset successful!"}), 200
 
     except Exception as e:
