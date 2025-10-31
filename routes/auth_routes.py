@@ -263,7 +263,6 @@ def send_otp():
         print("❌ send-otp error:", e)
         return jsonify({"message": "Server error"}), 500
 
-
 # ----------------------------------------------------------
 # Verify OTP
 # ----------------------------------------------------------
@@ -288,7 +287,10 @@ def verify_otp():
         if otp != record["otp"]:
             return jsonify({"message": "Invalid OTP"}), 400
 
+        # ✅ Mark OTP as verified instead of deleting immediately
+        otp_store[email]["verified"] = True
         return jsonify({"message": "OTP verified successfully!"}), 200
+
     except Exception as e:
         print("❌ verify-otp error:", e)
         return jsonify({"message": "Server error"}), 500
@@ -309,7 +311,7 @@ def reset_password():
             return jsonify({"message": "Missing fields"}), 400
 
         record = otp_store.get(email)
-        if not record:
+        if not record or not record.get("verified"):
             return jsonify({"message": "OTP verification required"}), 400
 
         hashed_pw = hash_password(new_password)
@@ -318,9 +320,11 @@ def reset_password():
             {"$set": {"password": hashed_pw, "original_password": new_password}}
         )
 
+        # ✅ Cleanup OTP data
         otp_store.pop(email, None)
         print(f"✅ Password reset for {email}")
         return jsonify({"message": "Password reset successful!"}), 200
+
     except Exception as e:
         print("❌ reset-password error:", e)
         return jsonify({"message": "Server error"}), 500
