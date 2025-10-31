@@ -58,14 +58,16 @@ def check_email():
     try:
         email = request.args.get("email", "").strip().lower()
         if not email:
-            return jsonify({"available": False, "error": "Missing email"}), 400
+            return jsonify({"error": "Missing email"}), 400
 
         db = get_db()
         exists = db.users.find_one({"email": email})
-        return jsonify({"available": not bool(exists)}), 200
+
+        # ✅ return key 'exists' instead of 'available'
+        return jsonify({"exists": bool(exists)}), 200
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"available": False, "error": "Server error"}), 500
+        return jsonify({"error": "Server error"}), 500
 
 
 # ==========================================================
