@@ -71,6 +71,7 @@ app.register_blueprint(feedback_bp, url_prefix="/api/feedback")
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
 app.register_blueprint(tools_bp, url_prefix="/api/tools")
 app.register_blueprint(activity_bp, url_prefix="/api/activity")
+app.register_blueprint(auth_bp, url_prefix="/api/auth")
 
 # ✅ Health Check Route
 @app.route("/api/health")
